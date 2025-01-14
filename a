@@ -1,0 +1,14 @@
+rust
+gate.io API
+
+every 162 seconds (starting immediately):
+    get last 2 OHCL
+    checks if downtrend or uptrend (if higher highs and higher lows, or lower highs or lower lows)
+    if downtrend:
+        check if gap between second's close and low is greater than gap between first's close and low and that first and second's close are not too close to their low
+        if true:
+            buy (and record price it was bought at)
+            every 9 seconds:
+                get last price
+                if price relatively/significantly greater than buy price:
+                    sell
