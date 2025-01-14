@@ -1,12 +1,12 @@
-use anyhow::anyhow;
-use chrono::{DateTime, NaiveDateTime};
+// use anyhow::anyhow;
+// use chrono::DateTime;
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::time::{sleep, Duration, Instant};
 
 #[derive(Deserialize, Clone, Debug)]
 struct OHLC {
-    time: String,
+    // time: String,
     close: f64,
     low: f64,
     high: f64,
@@ -29,19 +29,18 @@ impl TryFrom<ResOHLC> for OHLC {
         let low = value[4]
             .parse()
             .map_err(|_| anyhow::anyhow!("failed parse - 4"))?;
-        let naive_datetime = DateTime::from_timestamp(
-            value[0]
-                .parse()
-                .map_err(|_| anyhow::anyhow!("failed parse - time"))?,
-            0,
-        )
-        .ok_or(anyhow!("failed to get time from timestamp in OHLC"))?;
-        // Format to HH:MM:SS
+        // let t = DateTime::from_timestamp(
+        //     value[0]
+        //         .parse()
+        //         .map_err(|_| anyhow::anyhow!("failed parse - time"))?,
+        //     0,
+        // )
+        // .ok_or(anyhow!("failed to get time from timestamp in OHLC"))?;
         Ok(OHLC {
             close,
             low,
             high,
-            time: naive_datetime.format("%H:%M:%S").to_string(),
+            // time: naive_datetime.format("%H:%M:%S").to_string(),
         })
     }
 }
@@ -58,7 +57,6 @@ async fn get_ohlc(client: &Client, symbol: &str) -> Result<Vec<OHLC>, anyhow::Er
         "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair={}&interval=3m&limit=2",
         symbol
     ); // Use 3-minute interval
-    println!("Fetching OHLC data from URL: {}", url);
     let response = client
         .get(&url)
         .send()
@@ -66,7 +64,6 @@ async fn get_ohlc(client: &Client, symbol: &str) -> Result<Vec<OHLC>, anyhow::Er
         .json::<Vec<ResOHLC>>()
         .await?;
     println!("fr");
-    println!("Fetched OHLC data: {:?}", response);
     let all = response
         .iter()
         .map(|s| OHLC::try_from(s))
@@ -85,15 +82,15 @@ fn check_trend(ohlc: &[OHLC]) -> bool {
     let range_second = second.high - second.low;
 
     // Rule 1
-    let rule1 = gap_second > gap_first * 1.008; // 10% more significant
+    let rule1 = gap_second > gap_first * 1.08; // 10% more significant
 
     // Rule 2
-    let rule2 = first.close > first.low * 1.05 && second.close > second.low * 1.05; // 5% above the low
+    let rule2 = first.close > first.low * 1.08 && second.close > second.low * 1.08; // 5% above the low
 
     // Rule 3
-    let rule3 = range_second > range_first * 1.1; // 10% more significant
+    let rule3 = range_second > range_first * 1.08; // 10% more significant
 
-    let result = rule1 && /*rule2 &&*/ rule3;
+    let result = rule1 && rule2 && rule3;
     result
 }
 
@@ -101,23 +98,28 @@ async fn execute_trade(
     client: &Client,
     symbol: &str,
     buy_price: f64,
+    capital: &mut f64,
+    start_time: &Instant
 ) -> Result<(), reqwest::Error> {
     println!("Pretend buying at price: {}", buy_price);
-    let amount_bought = 9.0 / buy_price; // Calculate amount bought with $9
+    let amount_bought = *capital / buy_price; // Calculate amount bought with $9
     println!("Amount bought: {}", amount_bought);
 
     let mut interval = tokio::time::interval(Duration::from_secs(9));
     loop {
-        interval.tick().await;
         let last_price = get_last_price(client, symbol).await?;
-        println!("Fetched last price: {}", last_price);
 
-        if last_price > buy_price * 1.008 {
+        if last_price > buy_price * 1.08 {
             println!("Pretend selling at price: {}", last_price);
             let sell_value = amount_bought * last_price;
-            let profit = sell_value - 9.0; // Calculate profit based on amount bought with $9
-            println!("Profit: {}", profit);
+            let profit = sell_value - *capital; // Calculate profit based on amount bought with $9
+            *capital += profit;
+            println!("Profit: {profit}, Capital: {capital}");
             break;
+        }
+        
+        if start_time.elapsed().as_secs() < 144 {
+            interval.tick().await;
         }
     }
 
@@ -145,12 +147,20 @@ async fn get_last_price(client: &Client, symbol: &str) -> Result<f64, reqwest::E
     Ok(last_price)
 }
 
-async fn monitor_pairs(client: Client) -> Result<(), reqwest::Error> {
+async fn watch_symbols(client: Client) -> Result<(), reqwest::Error> {
     let symbols = [
-        "BTC_USDT", "ETH_USDT", "LTC_USDT", "XRP_USDT", "TAO_USDT", "EOS_USDT", "TRX_USDT",
-        "ADA_USDT", "XLM_USDT",
+        "AVAAI_USDT",
+        "ETH_USDT",
+        "LTC_USDT",
+        "XRP_USDT",
+        "TAO_USDT",
+        "EOS_USDT",
+        "TRX_USDT",
+        "ADA_USDT",
+        "XLM_USDT",
     ];
-    println!("Starting to monitor: {:#?}", symbols);
+    let mut capital = 1.08;
+    println!("Starting to watch: {:#?}, with {capital} capital", symbols);
     let mut interval = tokio::time::interval(Duration::from_secs(180));
     let start_time = Instant::now();
     loop {
@@ -160,16 +170,17 @@ async fn monitor_pairs(client: Client) -> Result<(), reqwest::Error> {
                 continue;
             };
             if let Ok(ohlc) = get_ohlc(&client, symbol).await {
+                let start = Instant::now();
                 if ohlc.len() >= 2 && check_trend(&ohlc) {
                     got = true;
                     println!("got {symbol}");
                     let buy_price = ohlc[1].close; // Record buy price
-                    execute_trade(&client, symbol, buy_price).await?;
+                    execute_trade(&client, symbol, buy_price, &mut capital, &start).await?;
                 }
             }
         }
         if got {
-            if  start_time.elapsed().as_secs() < 27 {
+            if start_time.elapsed().as_secs() < 27 {
                 interval.tick().await;
             } else {
                 println!("Time out")
@@ -179,16 +190,21 @@ async fn monitor_pairs(client: Client) -> Result<(), reqwest::Error> {
 }
 
 async fn _monitor_pair(client: Client, symbol: &str) -> Result<(), reqwest::Error> {
-    println!("Starting to monitor pair: {}", symbol);
+    let mut capital = 1.08;
+    println!(
+        "Starting to monitor pair: {}, with {capital} capital",
+        symbol
+    );
     let mut interval = tokio::time::interval(Duration::from_secs(180));
     loop {
+        let start_time = Instant::now();
         interval.tick().await;
 
         if let Ok(ohlc) = get_ohlc(&client, symbol).await {
             if ohlc.len() >= 2 && check_trend(&ohlc) {
                 let buy_price = ohlc[1].close; // Record buy price
                 sleep(Duration::from_secs(179)).await; // Wait 1 second before the candle ends (3 minutes - 1 second)
-                execute_trade(&client, symbol, buy_price).await?;
+                execute_trade(&client, symbol, buy_price, &mut capital, &start_time).await?;
             }
         }
     }
@@ -199,7 +215,7 @@ async fn main() -> Result<(), reqwest::Error> {
     println!("Starting the application...");
     let client = Client::new();
 
-    monitor_pairs(client).await.unwrap();
+    watch_symbols(client).await.unwrap();
 
     /*
     let symbols = [
