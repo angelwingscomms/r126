@@ -1,3 +1,6 @@
+use std::{collections::HashMap, sync::Arc};
+
+use parking_lot::Mutex;
 // use anyhow::anyhow;
 // use chrono::DateTime;
 use reqwest::Client;
@@ -52,9 +55,9 @@ impl TryFrom<&Vec<String>> for OHLC {
     }
 }
 
-async fn get_ohlc(client: &Client, symbol: &str) -> Result<Vec<OHLC>, anyhow::Error> {
+async fn get_ohlc(client: &Client, symbol: &str, minute_timeframe: i32) -> Result<Vec<OHLC>, anyhow::Error> {
     let url = format!(
-        "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair={}&interval=3m&limit=2",
+        "https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair={}&interval={minute_timeframe}m&limit=2",
         symbol
     ); // Use 3-minute interval
     let response = client
@@ -63,7 +66,6 @@ async fn get_ohlc(client: &Client, symbol: &str) -> Result<Vec<OHLC>, anyhow::Er
         .await?
         .json::<Vec<ResOHLC>>()
         .await?;
-    println!("fr");
     let all = response
         .iter()
         .map(|s| OHLC::try_from(s))
@@ -82,13 +84,13 @@ fn check_trend(ohlc: &[OHLC]) -> bool {
     let range_second = second.high - second.low;
 
     // Rule 1
-    let rule1 = gap_second > gap_first * 1.08; // 10% more significant
+    let rule1 = gap_second > gap_first * 1.0008; // 10% more significant
 
     // Rule 2
-    let rule2 = first.close > first.low * 1.08 && second.close > second.low * 1.08; // 5% above the low
+    let rule2 = first.close > first.low * 1.0008 && second.close > second.low * 1.0008; // 5% above the low
 
     // Rule 3
-    let rule3 = range_second > range_first * 1.08; // 10% more significant
+    let rule3 = range_second > range_first * 1.0008; // 10% more significant
 
     let result = rule1 && rule2 && rule3;
     result
@@ -99,7 +101,7 @@ async fn execute_trade(
     symbol: &str,
     buy_price: f64,
     capital: &mut f64,
-    start_time: &Instant
+    start_time: &Instant,
 ) -> Result<(), reqwest::Error> {
     println!("Pretend buying at price: {}", buy_price);
     let amount_bought = *capital / buy_price; // Calculate amount bought with $9
@@ -117,7 +119,7 @@ async fn execute_trade(
             println!("Profit: {profit}, Capital: {capital}");
             break;
         }
-        
+
         if start_time.elapsed().as_secs() < 144 {
             interval.tick().await;
         }
@@ -131,7 +133,6 @@ async fn get_last_price(client: &Client, symbol: &str) -> Result<f64, reqwest::E
         "https://api.gateio.ws/api/v4/spot/tickers?currency_pair={}",
         symbol
     );
-    println!("Fetching last price from URL: {}", url);
     let response = client
         .get(&url)
         .send()
@@ -143,21 +144,38 @@ async fn get_last_price(client: &Client, symbol: &str) -> Result<f64, reqwest::E
         .unwrap()
         .parse::<f64>()
         .unwrap();
-    println!("Fetched last price: {}", last_price);
     Ok(last_price)
 }
 
 async fn watch_symbols(client: Client) -> Result<(), reqwest::Error> {
     let symbols = [
-        "AVAAI_USDT",
-        "ETH_USDT",
-        "LTC_USDT",
-        "XRP_USDT",
-        "TAO_USDT",
-        "EOS_USDT",
-        "TRX_USDT",
-        "ADA_USDT",
-        "XLM_USDT",
+      "LINK_USDT",
+      "DOT_USDT",
+      "ICP_USDT",
+      "FET_USDT",
+      "FIL_USDT",
+      "THETA_USDT",
+      "GRT_USDT",
+      "ENS_USDT",
+      "AR_USDT",
+      "BTT_USDT",
+      "HNT_USDT",
+      "CKB_USDT",
+      "W_USDT",
+      "AIOZ_USDT",
+      "MOCA_USDT",
+      "UXLINK_USDT",
+      "BAT_USDT",
+      "KDA_USDT",
+      "SC_USDT",
+      "GLM_USDT",
+      "XYO_USDT",
+      "LRC_USDT",
+      "API3_USDT",
+      "MASK_USDT",
+      "FLUX_USDT",
+      "CSPR_USDT",
+      "CHR_USDT"
     ];
     let mut capital = 1.08;
     println!("Starting to watch: {:#?}, with {capital} capital", symbols);
@@ -169,27 +187,41 @@ async fn watch_symbols(client: Client) -> Result<(), reqwest::Error> {
             if got {
                 continue;
             };
-            if let Ok(ohlc) = get_ohlc(&client, symbol).await {
+            if let Ok(ohlc) = get_ohlc(&client, symbol, 3).await {
+                println!("getting {symbol}");
                 let start = Instant::now();
                 if ohlc.len() >= 2 && check_trend(&ohlc) {
                     got = true;
                     println!("got {symbol}");
-                    let buy_price = ohlc[1].close; // Record buy price
-                    execute_trade(&client, symbol, buy_price, &mut capital, &start).await?;
+                    // let buy_price = ohlc[1].close; // Record buy price
+                    // execute_trade(&client, symbol, buy_price, &mut capital, &start).await?;
                 }
             }
         }
-        if got {
-            if start_time.elapsed().as_secs() < 27 {
-                interval.tick().await;
-            } else {
-                println!("Time out")
-            }
-        }
+        // if got {
+        //     if start_time.elapsed().as_secs() < 27 {
+        //         interval.tick().await;
+        //     } else {
+        //         println!("Time out")
+        //     }
+        // }
     }
 }
 
-async fn _monitor_pair(client: Client, symbol: &str) -> Result<(), reqwest::Error> {
+/*
+    for each timeframe
+        start thread
+            every timeframe interval
+                create hashmap
+                for each symbol
+                    start thread
+                        check price, update hashmap
+                when threads done
+                    get max
+                    invest
+*/
+
+async fn monitor_pair(client: Client, symbol: &str, minute_timeframe: i32) -> Result<(), reqwest::Error> {
     let mut capital = 1.08;
     println!(
         "Starting to monitor pair: {}, with {capital} capital",
@@ -200,7 +232,7 @@ async fn _monitor_pair(client: Client, symbol: &str) -> Result<(), reqwest::Erro
         let start_time = Instant::now();
         interval.tick().await;
 
-        if let Ok(ohlc) = get_ohlc(&client, symbol).await {
+        if let Ok(ohlc) = get_ohlc(&client, symbol, minute_timeframe).await {
             if ohlc.len() >= 2 && check_trend(&ohlc) {
                 let buy_price = ohlc[1].close; // Record buy price
                 sleep(Duration::from_secs(179)).await; // Wait 1 second before the candle ends (3 minutes - 1 second)
@@ -210,35 +242,39 @@ async fn _monitor_pair(client: Client, symbol: &str) -> Result<(), reqwest::Erro
     }
 }
 
+pub struct Choice {
+    ticker: String,
+    timeframe: i32
+}
+
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
     println!("Starting the application...");
     let client = Client::new();
+    let res: Arc<Mutex<HashMap<String, Choice>>> = Arc::new(Mutex::new(HashMap::new()));
 
     watch_symbols(client).await.unwrap();
+    
+    return Ok(())
 
-    /*
-    let symbols = [
-        "BTC_USDT", "ETH_USDT", "LTC_USDT", "XRP_USDT", "TAO_USDT", "EOS_USDT", "TRX_USDT",
-        "ADA_USDT", "XLM_USDT",
-    ];
-    let mut handles = vec![];
-    for &symbol in &symbols {
-        let client_clone = client.clone();
-        let handle = tokio::spawn(async move {
-            //
-            // dummy
-            // let res = get_ohlc(&client, "TAO_USDT").await.unwrap();
-            // println!("res: {:#?}", res);
-            //
-            monitor_pair(client_clone, symbol).await.unwrap();
-        });
-        handles.push(handle);
-    }
+    // let symbols = [
+    //     "BTC_USDT", "ETH_USDT", "LTC_USDT", "XRP_USDT", "TAO_USDT", "EOS_USDT", "TRX_USDT",
+    //     "ADA_USDT", "XLM_USDT",
+    // ];
+    // let mut handles = vec![];
+    // for &symbol in &symbols {
+    //     for tf in vec![3, 15, 30] {
+    //         let client_clone = client.clone();
+    //         let handle = tokio::spawn(async move {
+    //             monitor_pair(client_clone, symbol, tf).await.unwrap();
+    //         });
+    //         handles.push(handle);
+    //     }
+    // }
 
-    for handle in handles {
-        handle.await.unwrap();
-    } */
+    // for handle in handles {
+    //     handle.await.unwrap();
+    // }
 
-    Ok(())
+    // Ok(())
 }
