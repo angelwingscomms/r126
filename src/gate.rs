@@ -1,6 +1,5 @@
 use serde::Deserialize;
 use serde::Serialize;
-use serde_json::json;
 use sha2::Digest;
 use sha2::Sha512;
 use std::env;
@@ -12,7 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // Define type alias for Hmac-Sha512
 type HmacSha512 = Hmac<Sha512>;
 
-enum TradeStatus {
+#[derive(Serialize, Deserialize)]
+pub enum TradeStatus {
     Untradable,
     Buyable,
     Sellable,
@@ -20,7 +20,7 @@ enum TradeStatus {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Pair {
+pub struct Pair {
     id: Option<String>,
     base: Option<String>,
     quote: Option<String>,
@@ -194,7 +194,7 @@ pub async fn buy(t: &str, amount: f64) {
 }
 
 pub async fn pairs() -> anyhow::Result<Vec<Pair>> {
-    Ok(serde_json::from_value::<Vec<Pair>>(
+    Ok(serde_json::from_value(
         send_get("/spot/currency_pairs").await?,
     )?)
 }

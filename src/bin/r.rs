@@ -1,14 +1,15 @@
 use std::time::Duration;
 
-use r126::gate::{buy, sell, send};
+use r126::gate::{buy, pairs, sell, send};
 use tokio::time::Instant;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
     // buy("CAM", 3.0).await;
-    sell("CAM", 144.0).await;
-    
+    // sell("CAM", 144.0).await;
+    println!("pairs: {:#?}", pairs().await?.len());
+
     // tokio::spawn(async move {
     //     // let bought = false;
     //     let mut count = 0;
