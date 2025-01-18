@@ -1,6 +1,6 @@
 use super::send;
 
-pub async fn sell(t: &str, amount: f64) -> anyhow::Result<serde_json::Value> {
+pub async fn sell(t: &str, amount: &str) -> anyhow::Result<serde_json::Value> {
     Ok(send(
         "spot/orders",
         &serde_json::json!({

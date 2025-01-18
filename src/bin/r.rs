@@ -6,11 +6,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let buy_res = buy("ARTELA", 9.0).await?;
         println!("buy res: {:#?}", buy_res);
-        if let Ok(f) = buy_res["filled_amount"]
-            .as_str()
-            .ok_or("filled_amount as_str")?
-            .parse::<f64>()
-        {
+        if let Some(f) = buy_res["filled_amount"].as_str() {
             let sell_res = sell("ARTELA", f).await?;
             println!("sell res: {:#?}", sell_res);
             break;
