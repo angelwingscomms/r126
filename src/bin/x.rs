@@ -1,6 +1,5 @@
 use r126::gate::send;
 use reqwest::Client;
-use serde::{Deserialize, /*Serialize */};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use dotenv::dotenv;
