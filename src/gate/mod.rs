@@ -1,3 +1,6 @@
+pub mod order;
+pub mod util;
+
 use serde::Deserialize;
 use serde::Serialize;
 use sha2::Digest;
@@ -12,6 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 type HmacSha512 = Hmac<Sha512>;
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TradeStatus {
     Untradable,
     Buyable,
@@ -109,7 +113,7 @@ pub async fn send<T: Serialize>(path: &str, payload: &T) -> anyhow::Result<serde
 pub async fn send_get(path: &str) -> anyhow::Result<serde_json::Value> {
     let key = env::var("GATE")?;
     let secret = env::var("GATE_SECRET")?;
-    let method = "POST";
+    let method = "GET";
     let url = format!("/api/v4/{path}");
     let query_string = "";
     let payload = ""; // Payload should be hex-encoded SHA512 hash of the request body
@@ -134,7 +138,7 @@ pub async fn send_get(path: &str) -> anyhow::Result<serde_json::Value> {
     // Create request client and set headers
     let client = reqwest::Client::new();
     let response = client
-        .post(format!("https://api.gateio.ws{url}"))
+        .get(format!("https://api.gateio.ws{url}"))
         .header("KEY", key)
         .header("Content-Type", "application/json")
         .header("Timestamp", &timestamp)
@@ -148,53 +152,12 @@ pub async fn send_get(path: &str) -> anyhow::Result<serde_json::Value> {
     Ok(response)
 }
 
-pub async fn sell(t: &str, amount: f64) {
-    match send(
-        "spot/orders",
-        &serde_json::json!({
-            "currency_pair": t.to_owned() + "_USDT",
-            "type": "market",
-            "side": "sell",
-            "time_in_force": "fok",
-            "account": "spot",
-            "amount": amount,
-        }),
-    )
-    .await
-    {
-        Ok(r) => {
-            println!("sold {amount} {t}. res: {:#?}", r);
-            // sold = true;
-        }
-        Err(e) => println!("sell error: {:#?}", e),
-    };
-}
 
-pub async fn buy(t: &str, amount: f64) {
-    match send(
-        "spot/orders",
-        &serde_json::json!({
-            "currency_pair": "SOL_USDT",
-            "type": "market",
-            "side": "buy",
-            "time_in_force": "ioc",
-            "account": "spot",
-            "amount": amount,
-            // "price":  0.144
-        }),
-    )
-    .await
-    {
-        Ok(r) => {
-            println!("bought {amount} {t}. res: {:#?}", r);
-            // bought = true;
-        }
-        Err(e) => println!("buy error: {:#?}", e),
-    };
-}
 
-pub async fn pairs() -> anyhow::Result<Vec<Pair>> {
+pub async fn all_pairs() -> anyhow::Result<Vec<Pair>> {
+    let res = send_get("spot/currency_pairs").await?;
+    println!("pairs res: {:#?}", res);
     Ok(serde_json::from_value(
-        send_get("/spot/currency_pairs").await?,
+        res,
     )?)
 }

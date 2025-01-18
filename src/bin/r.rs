@@ -1,40 +1,20 @@
-use std::time::Duration;
-
-use r126::gate::{buy, pairs, sell, send};
-use tokio::time::Instant;
+use r126::gate::util::{buy, sell};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
-    // buy("CAM", 3.0).await;
-    // sell("CAM", 144.0).await;
-    println!("pairs: {:#?}", pairs().await?.len());
-
-    // tokio::spawn(async move {
-    //     // let bought = false;
-    //     let mut count = 0;
-    //     let start = Instant::now();
-    //     while start.elapsed() < Duration::from_secs(1) {
-    //         buy("CAM", 1.44).await;
-    //         count += 1;
-    //     }
-    //     println!("buy count: {count}");
-    //     println!("buy time: {}", start.elapsed().as_secs());
-    // })
-    // .await?;
-
-    // tokio::spawn(async move {
-    //     let sold = false;
-    //     // let mut count = 0;
-    //     // let start = Instant::now();
-    //     while !sold {
-    //         // while start.elapsed() < Duration::from_secs(1) {
-    //         sell("CAM", 1.44).await;
-    //         // count += 1;
-    //     }
-    //     // println!("sell count: {count}");
-    //     // println!("sell time: {}", start.elapsed().as_secs());
-    // })
-    // .await?;
+    loop {
+        let buy_res = buy("ARTELA", 9.0).await?;
+        println!("buy res: {:#?}", buy_res);
+        if let Ok(f) = buy_res["filled_amount"]
+            .as_str()
+            .ok_or("filled_amount as_str")?
+            .parse::<f64>()
+        {
+            let sell_res = sell("ARTELA", f).await?;
+            println!("sell res: {:#?}", sell_res);
+            break;
+        }
+    }
     Ok(())
 }
